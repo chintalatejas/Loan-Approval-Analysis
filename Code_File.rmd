@@ -1,0 +1,197 @@
+---
+output:
+  word_document: default
+  html_document: default
+---
+
+# STAT 847 - Final Project
+
+### QUESTION 1- Describe and justify two different topics or approaches you might want to consider for this dataset and task. You don't have to use these tasks in the actual analysis. 
+
+The approaches that would be considered for this dataset are:
+
+1. Multiple Imputation:
+
+This dataset contains multiple instances of Null values across different variable types like continuous and categorical variables. This method can be an effective method to handle the missing data by taking the predictions and adding random noise to the data. Creating 3-10 copies of the imputed dataset and combining the results of all the datasets in accordance to Rubin’s rule can help identify the uncertainty added by the imputed values.
+
+2. Quantile Regression
+
+For features like total income or the credit score of the customer, the data is widely spread such that there are extreme or outlier values in the data. In general, some of the features are also skewed towards a certain class. Quantile regression has the ability to handle outlier values and skewness to give the conditional distribution of the response variable, providing the quantile distributions. Since many of the observations are having zero values with no normal distribution, quantile regression might be a great approach.
+
+
+### QUESTION 2- Describe and show the code used to clean and collect the data. (Optional)
+
+```{r}
+
+library(stringr)
+library(tidyverse)
+library(lubridate)
+library(dplyr)
+library(ggplot2)
+library(zoo)
+library(GGally)
+library(rpart)
+library(caret)
+library(naniar)
+library(DescTools)
+library(FactoMineR)
+
+
+#Reading the data
+data = read_csv("C:/Users/User/Documents/Winter 2023/STAT 847/Final Project/Loan Credit Kaggle/application_data.csv")
+
+#Data before cleaning
+dim(data)
+summary(data)
+
+#Data Cleaning
+data = data[, -c(42:86)]
+data = select(data, -c("TOTALAREA_MODE", "AMT_REQ_CREDIT_BUREAU_HOUR", "AMT_REQ_CREDIT_BUREAU_DAY", 
+                       "AMT_REQ_CREDIT_BUREAU_WEEK", "AMT_REQ_CREDIT_BUREAU_MON",
+                       "AMT_REQ_CREDIT_BUREAU_QRT", "AMT_REQ_CREDIT_BUREAU_YEAR",
+                       "OWN_CAR_AGE"))
+
+#Checking NA values in categorical features
+colSums(is.na(data[, c("NAME_CONTRACT_TYPE", "FLAG_OWN_CAR",
+                       "FLAG_OWN_REALTY", "NAME_TYPE_SUITE","NAME_INCOME_TYPE",
+                       "NAME_EDUCATION_TYPE","NAME_FAMILY_STATUS","NAME_HOUSING_TYPE",
+                       "OCCUPATION_TYPE","WEEKDAY_APPR_PROCESS_START","ORGANIZATION_TYPE",
+                       "FONDKAPREMONT_MODE", "HOUSETYPE_MODE", "WALLSMATERIAL_MODE",
+                       "EMERGENCYSTATE_MODE" )]))
+
+#Dropping features
+data = select(data, -c("FONDKAPREMONT_MODE",          
+                       "HOUSETYPE_MODE", "WALLSMATERIAL_MODE","EMERGENCYSTATE_MODE", "OCCUPATION_TYPE",
+                       "NAME_TYPE_SUITE"))
+
+#Checking XNA values
+colSums(data == "XNA")
+
+#Remove XNA values in CODE_GENDER
+data = subset(data, CODE_GENDER!="XNA")
+
+#Dropping ORGANIZATION_TYPE (55374 XNA values)
+data = select(data, -c("ORGANIZATION_TYPE"))
+
+#Replace NA values of Count of family members with 0 (2 Null values)
+data$CNT_FAM_MEMBERS = replace(data$CNT_FAM_MEMBERS, is.na(data$CNT_FAM_MEMBERS),0)
+
+#Replace 12 NA values of AMT_ANNUITY with the mean
+data$AMT_ANNUITY = replace(data$AMT_ANNUITY, is.na(data$AMT_ANNUITY), mean(data$AMT_ANNUITY, na.rm=TRUE))
+
+#Replace 278 NA values of AMT_GOODS_PRICE with the mean
+data$AMT_GOODS_PRICE = replace(data$AMT_GOODS_PRICE, is.na(data$AMT_GOODS_PRICE), mean(data$AMT_GOODS_PRICE, na.rm=TRUE))
+
+
+#Changing the days of birth in years 
+data$AGE = as.integer(trunc(abs(data$DAYS_BIRTH/365)))
+data$YEARS_EMPLOYED = as.integer(trunc(abs(data$DAYS_EMPLOYED/365)))
+
+#Removing rows that has employment years as 1000
+check_data = subset(data, YEARS_EMPLOYED!=1000)
+
+
+#Removing other rows that contain NA values
+new_data = na.omit(check_data)
+dim(new_data)
+
+#Converting it into factors/categorical features
+new_data$TARGET = as.factor(new_data$TARGET)
+new_data$FLAG_DOCUMENT_3 = as.factor(new_data$FLAG_DOCUMENT_3)
+
+```
+
+The dataset has been collected from Kaggle website(https://www.kaggle.com/datasets/kamleshatara/credit-eda-assignment) named Loan Credit. It contains 307511 rows with 122 features initially. After analysing the dataset, it is observed that considerable data cleaning is required.  Features such as “EXT_SOURCE_1”, “EXT_SOURCE_2”, and “EXT_SOURCE_3” are not relevant to the data analysis and no information is provided on their importance to the loan study. Hence these features are removed. Moreover, features like “BASEMENTAREA_AVG”, “ELEVATOR_AVG”, etc contain the scores of the basement and elevator of the customer's current residence. Since these features contain around 50% NA values in them and removing those particular rows will significantly reduce the data size, therefore those features are dropped. Other features like AMT_REQ_CREDIT_BUREAU” ,”OWN_CAR_AGE” are also removed due to their less importance and the presence of significant NA values.
+
+Now we check the NA values in categorical variables. Features like “FONDKAPREMOUNT_MODE”, “HOUSETYPE_MODE”, “WALLSMATERIAL_MODE”, ”EMERGENCYSTATE_MODE” also contain more than 50% NA values in them. Also, their description is not present in the metafile, hence these features are dropped. “OCCUPATION_TYPE” showcasing the occupation of the customer contains 96391 NA values. Since we can't replace the NA values with the most frequent value in this feature due to bias, this column is also dropped. It is also observed that there are XNA values in the categorical features which is another indication of NA values. There are only 4 XNA values in “CODE_GENDER” which showcases the gender of the customer, so those particular rows are dropped, but “ORGANIZATION_TYPE” contains 55374 XNA values hence this feature is not considered and dropped. Some continuous features like “AMT_ANNUITY”, “AMY_GOOD_PRICE” contain less than 1% of NA values, those values are replaced by their mean value via mean imputation.
+
+“DAYS_BIRTH” and “DAY_EMPLOYED” contain age and employment status of the customer in days. It is transformed into years for proper analysis and presentation of data. One interesting observation for DAY_EMPLOYED features was that after transformation, there were values that showed the customers have a 1000-year employment status. Since this is impossible in nature, those rows are removed. Other NA values are removed, and the data contains 251283 rows with 64 features after cleaning.
+
+### QUESTION 3- Give a ggpairs plot of what you think are the six most important variables. At least one must be categorical, and one continuous. Explain your choice of variables and the trends between them.
+
+From the ggpairs plot the 6 most important variables chosen are:
+1. NAME_CONTRACT_TYPE - Type of Loan
+2. AMT_INCOME_TOTAL - Total Income of the customer
+3. AMT_ANNUITY - Loan Annuity value
+4. AMT_GOOD_PRICE - Price of the goods
+5. FLAG_DOCUMENT_3 - If the customer provided document 3 or not
+6. AMT_CREDIT - Credit Score of the Customer
+
+Variables like Credit Score, Price _of_Goods, and Loan_Annuity have a positive correlation, with those features being the most significant(***) among the other 64 features. Document_3 also has a good distribution with the Credit_Score, Laon_Annuity and the Price_of_Goods variables and the Loan_Type variable is included to predict the type of loan in accordance with the other variables. 
+
+```{r}
+
+#Creating the ggpairs plot
+vars = c("NAME_CONTRACT_TYPE", "AMT_INCOME_TOTAL","AMT_ANNUITY", "AMT_GOODS_PRICE", "FLAG_DOCUMENT_3", "AMT_CREDIT")
+
+ggpairs(new_data, columns = vars, columnLabels = c("Loan_Type","Total_Income", "Loan_Annuity", 
+                                                            "Price_of_Goods", "Document_3", "Credit Score"))
+
+
+```
+
+### QUESTION 4- Build a classification tree of one of the six variables from the last part as a function of the other five, and any other explanatory variables you think are necessary. Show code, explain reasoning, and show the tree as a simple (ugly) plot. Show the confusion matrix. Give two example predictions and follow them down the tree
+
+```{r}
+
+#Splitting the data into training and testing data
+split_data = createDataPartition(y = new_data$NAME_CONTRACT_TYPE, p=0.75, list=FALSE)
+train = new_data[split_data,]
+test = new_data[-split_data,]
+
+#Creating the classification tree
+fit = rpart(NAME_CONTRACT_TYPE ~ AMT_INCOME_TOTAL+AMT_GOODS_PRICE+
+              AMT_ANNUITY+FLAG_DOCUMENT_3+AMT_CREDIT,
+            method = "class",data=train)
+
+#Plotting the tree and checking the summary of the tree
+plot(fit, uniform=TRUE)
+text(fit, use.n=TRUE, all=TRUE, cex=1)
+printcp(fit)
+summary(fit)
+
+#Testing the classification tree on the testing set
+predictions = predict(fit, newdata = test, type = "class")
+
+#Creating the confustion Matrix
+confusion_matrix = table(predictions, test$NAME_CONTRACT_TYPE)
+print(confusion_matrix)
+
+#First example
+pred1 = predict(fit, data.frame(AMT_INCOME_TOTAL = 67500, AMT_GOODS_PRICE = 513000,
+                                AMT_ANNUITY = 29000 , FLAG_DOCUMENT_3 = "1", AMT_CREDIT=12000), 
+                type="class")
+print(pred1)
+
+```
+
+A classification tree is built with NAME_CONTRACT_TYPE as a function of the other 5 variables. The data is split into training and testing sets and the classification tree is built. When analysing the tree, it is observed that the variables used for tree construction were “AMY_ANNUITY”,” AMT_CREDIT”,” AMT_GOODS_PRICE”, AND “FLAG_DOCUMENT_3, with the other variables excluded. With further analysis, it is observed that as we move down the tree, the more complex the model becomes. At the end of all splits, the relative error is 0.221 which means the model is able to explain 78% of the total variations in the data. Moreover, the AMT_CREDIT, AMT_ANNUITY, FLAG_DOCUMENT_3, and AMT_GOODS_PRICE features have almost equal importance to the model with each contributing 26%, 24%, 24% and 22% respectively to the model. 
+
+When the model is tested on the tested data, a confusion matrix is created which showcased that the model is able to predict 51007 data correctly for the Cash Loans type with 5627 data identified incorrectly as Revolving Loans. For Revolving Loans, the model is only able to predict 638 values correctly with 5548 values falsely predicted due to the imbalance in the data. Moving forward 2 example prediction data are used to predict the type of loan. 
+
+
+### QUESTION 6- Build another model using one of the continuous variables from your six most important. This time use your model selection and dimension reduction tools, and include at least one non-linear term.
+
+```{r}
+
+#Selecting the data
+data_6 = select(new_data, c("NAME_CONTRACT_TYPE", "AMT_INCOME_TOTAL","AMT_ANNUITY","AMT_GOODS_PRICE", "FLAG_DOCUMENT_3", "AMT_CREDIT"))
+dim(data_6)
+
+#Implementing Factor Analysis of Mixed Data
+res = FAMD(data_6, graph=FALSE)
+summary(res)
+
+#Creating the model based on the importance of the variables obtained from FAMD
+model = glm(AMT_INCOME_TOTAL ~ I(log(AMT_GOODS_PRICE)) + I(AMT_ANNUITY^3)+ AMT_CREDIT + NAME_CONTRACT_TYPE, data = data_6)
+summary(model)
+
+```
+
+Due to the presence of both continuous and categorical variables, Factor Analysis of Mixed Data is implemented as the dimension reduction method on the 6 variables. It is observed that dimension 2 is able to explain 72 % of the variance with further dimension signalling noise, therefore the variable contribution for dimension 2 is considered, with AMT_INCOME_TOTAL, AMT_ANNUITY, AMT_GOOD_PRICE, AMT_CREDIT contributing 3.304, 1.127, 3.054, 2.103 values respectively. 
+
+A linear model of AMT_INCOME_TOTAL as a function of the log of AMT_GOODS_PRICE + cube of AMT_ANNUITY + AMT_CREDIT + NAME_CONTRACT_TYPE is created with all the variables being significant for the model. 
+
+### QUESTION 8- Discuss briefly any ethical concerns like residual disclosure that might arise from the use of your data set, possibly in combination with some additional data outside your dataset. (Option)
+
+Residual disclosure is a phenomenon where a combination of anonymized pieces of info about a person or company identify the person and reveals information that wasn’t intended to be open. This dataset has the potential to reveal the identity of the person. It contains information like income, credit score and the organization_type and occupation type of the customers. Moreover, it also contains personal information like the number of children and the status of the customer in the family. Knowing these data can pinpoint particular customers with ease, in addition to revealing other aspects of the customer's information present in the dataset like the phone number, address and age. 
